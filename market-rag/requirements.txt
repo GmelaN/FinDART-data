@@ -1,0 +1,13 @@
+qdrant-client
+elasticsearch
+sentence-transformers
+pydantic
+pydantic-settings
+python-dotenv
+pandas
+openpyxl
+beautifulsoup4
+requests
+python-dateutil
+tqdm
+
