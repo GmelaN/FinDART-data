@@ -14,6 +14,12 @@ class Settings(BaseSettings):
         default="http://10.0.0.200:9200", alias="ELASTICSEARCH_URL"
     )
 
+    postgresql_host: str = Field(default="10.1.0.200", alias="POSTGRESQL_HOST")
+    postgresql_port: int = Field(default=5432, alias="POSTGRESQL_PORT")
+    postgresql_db: str = Field(default="findart", alias="POSTGRESQL_DB")
+    postgresql_user: str = Field(default="findart", alias="POSTGRESQL_USER")
+    postgresql_password: str = Field(default="", alias="POSTGRESQL_PASSWORD")
+
     embedding_model: str = Field(default="BAAI/bge-m3", alias="EMBEDDING_MODEL")
     embedding_dim: int = Field(default=1024, alias="EMBEDDING_DIM")
 
@@ -27,6 +33,16 @@ class Settings(BaseSettings):
         default="portfolio_context_v1", alias="COLLECTION_PORTFOLIO_CONTEXT"
     )
 
+    @property
+    def postgresql_dsn(self) -> str:
+        return (
+            f"host={self.postgresql_host} "
+            f"port={self.postgresql_port} "
+            f"dbname={self.postgresql_db} "
+            f"user={self.postgresql_user} "
+            f"password={self.postgresql_password}"
+        )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -38,4 +54,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -4,6 +4,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.search.hybrid_search import HybridSearch
+from app.store.postgres_store import PostgresStore
 
 
 QUERIES = [
@@ -17,10 +18,14 @@ QUERIES = [
 
 if __name__ == "__main__":
     search = HybridSearch()
+    postgres_store = PostgresStore()
     for query in QUERIES:
         print("\n" + "=" * 100)
         print(f"QUERY: {query}")
-        for idx, result in enumerate(search.search(query, limit=5), start=1):
+        results = search.search(query, limit=5)
+        retrieval_id = postgres_store.record_retrieval_run(query, results, top_k=5)
+        print(f"retrieval_id={retrieval_id}")
+        for idx, result in enumerate(results, start=1):
             payload = result["payload"]
             print(
                 f"{idx}. score={result['score']:.4f} "
@@ -30,4 +35,3 @@ if __name__ == "__main__":
             print(f"   source={payload.get('source_name')} type={payload.get('source_type')}")
             print(f"   tags macro={payload.get('macro_tags')} sector={payload.get('sector_tags')} risk={payload.get('risk_tags')}")
             print(f"   text={payload.get('text', '')[:180]}")
-

@@ -6,6 +6,7 @@
 
 - Qdrant: `market_docs_v1`, `entity_profiles_v1`, `portfolio_context_v1`
 - Elasticsearch: `market_docs_v1`
+- PostgreSQL: 원천 문서 메타데이터, chunk 매핑, retrieval/generation 로그, serving page 캐시
 - Embedding: `BAAI/bge-m3`, dimension `1024`, cosine distance
 - 정형 시계열 DB: `TimeSeriesStore` 인터페이스만 제공
 
@@ -31,6 +32,12 @@ QDRANT_PREFER_GRPC=false
 
 ELASTICSEARCH_URL=http://10.0.0.200:9200
 
+POSTGRESQL_HOST=10.1.0.200
+POSTGRESQL_PORT=5432
+POSTGRESQL_DB=findart
+POSTGRESQL_USER=findart
+POSTGRESQL_PASSWORD=
+
 EMBEDDING_MODEL=BAAI/bge-m3
 EMBEDDING_DIM=1024
 
@@ -44,8 +51,10 @@ COLLECTION_PORTFOLIO_CONTEXT=portfolio_context_v1
 ```bash
 python scripts/init_qdrant.py
 python scripts/init_elastic.py
+python scripts/init_postgres.py
 python scripts/ingest_sample_docs.py
 python scripts/test_search.py
+python scripts/update_today_snapshot.py
 ```
 
 처음 `ingest_sample_docs.py`를 실행할 때 `sentence-transformers`가 `BAAI/bge-m3` 모델을 다운로드합니다.
@@ -82,7 +91,19 @@ python scripts/ingest_sample_docs.py
 - macro_interpretation
 - portfolio_snapshot
 
-Qdrant point id와 Elasticsearch document id는 동일한 deterministic UUID입니다. `source_url` 또는 `source_id` 기반 dedup hash를 사용하므로 같은 문서를 다시 넣어도 같은 point/document가 upsert/index 됩니다.
+Qdrant point id와 Elasticsearch document id는 동일한 deterministic UUID입니다. PostgreSQL `document_chunks.qdrant_point_id`, `document_chunks.elastic_doc_id`도 같은 값을 저장합니다. `source_url` 또는 `source_id` 기반 dedup hash를 사용하므로 같은 문서를 다시 넣어도 같은 point/document가 upsert/index 됩니다.
+
+## PostgreSQL
+
+`scripts/init_postgres.py`는 초기 MVP 테이블을 생성합니다.
+
+- `documents`, `document_chunks`
+- `entities`, `document_entity_mentions`
+- `retrieval_runs`, `generation_runs`, `evidence_links`
+- `today_snapshots`, `today_issues`, `today_sector_impacts`
+- `serving_pages`
+
+`scripts/update_today_snapshot.py`는 현재 더미 검색 결과를 기반으로 rule-based Today 스냅샷과 `serving_pages(today)` 캐시를 갱신합니다. LLM 연결 전까지 화면/API 계약을 먼저 고정하기 위한 임시 생성기입니다.
 
 ## 검색 테스트
 
@@ -104,4 +125,3 @@ AI 데이터센터 투자 확대와 관련된 수혜 산업을 찾아줘
 ## 외부 수집기
 
 `app/ingest/` 아래 collector는 구조만 만들어져 있습니다. ECOS, KOSIS, 환율, 무역, KRX, OpenDART, KIND, 정책, 뉴스, 뱅크샐러드 export 연동을 이 위치에 붙이면 됩니다.
-

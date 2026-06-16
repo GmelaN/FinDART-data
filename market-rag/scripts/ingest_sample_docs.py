@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models.document import MarketDocument
 from app.store.elastic_store import ElasticsearchDocumentStore
+from app.store.postgres_store import PostgresStore
 from app.store.qdrant_store import QdrantDocumentStore
 
 
@@ -80,9 +81,14 @@ def sample_documents() -> list[MarketDocument]:
 
 
 if __name__ == "__main__":
+    docs = sample_documents()
     qdrant_store = QdrantDocumentStore()
     elastic_store = ElasticsearchDocumentStore()
-    chunks = qdrant_store.upsert_documents(sample_documents())
+    postgres_store = PostgresStore()
+    chunks = qdrant_store.upsert_documents(docs)
     count = elastic_store.bulk_index_chunks(chunks)
-    print(f"Upserted {len(chunks)} chunks into Qdrant and indexed {count} docs into Elasticsearch.")
-
+    postgres_store.upsert_documents(docs, chunks)
+    print(
+        f"Upserted {len(chunks)} chunks into Qdrant, indexed {count} docs into "
+        "Elasticsearch, and synced PostgreSQL documents/chunks."
+    )
