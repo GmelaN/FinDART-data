@@ -556,3 +556,146 @@ class PostgresStore:
                     (page_id, today, market, headline, json_dumps(payload), [snapshot_id]),
                 )
         return snapshot_id
+
+    def upsert_today_page_payload(self, payload: dict[str, Any], *, user_id: str = "") -> str:
+        page_date = date.fromisoformat(payload["page_date"])
+        market = payload.get("market") or "KR"
+        snapshot_id = f"today:{market}:{page_date.isoformat()}"
+        page_id = f"page:today:{market}:{page_date.isoformat()}:{user_id}"
+        headline = None
+        if payload.get("headlines"):
+            headline = payload["headlines"][0].get("title")
+        headline = headline or "생성된 이슈 없음"
+        source_doc_ids = sorted(
+            {
+                evidence["doc_id"]
+                for section in ("headlines", "issues", "tracked_issues", "events")
+                for item in payload.get(section, [])
+                for evidence in item.get("evidence", [])
+                if evidence.get("doc_id")
+            }
+        )
+
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO today_snapshots (
+                        snapshot_id, snapshot_date, snapshot_type, market,
+                        interest_rate_regime, fx_regime, inflation_regime, growth_regime,
+                        headline, abstract, generated_by, prompt_version, model_name,
+                        data_start_at, data_end_at
+                    )
+                    VALUES (
+                        %(snapshot_id)s, %(snapshot_date)s, 'intraday', %(market)s,
+                        %(interest_rate_regime)s, %(fx_regime)s, %(inflation_regime)s,
+                        %(growth_regime)s, %(headline)s, %(abstract)s, 'pipeline',
+                        'today_rule_based_poc_v1', 'none',
+                        %(data_start_at)s, %(data_end_at)s
+                    )
+                    ON CONFLICT (snapshot_date, market) DO UPDATE SET
+                        snapshot_type = EXCLUDED.snapshot_type,
+                        interest_rate_regime = EXCLUDED.interest_rate_regime,
+                        fx_regime = EXCLUDED.fx_regime,
+                        inflation_regime = EXCLUDED.inflation_regime,
+                        growth_regime = EXCLUDED.growth_regime,
+                        headline = EXCLUDED.headline,
+                        abstract = EXCLUDED.abstract,
+                        generated_by = EXCLUDED.generated_by,
+                        prompt_version = EXCLUDED.prompt_version,
+                        model_name = EXCLUDED.model_name,
+                        data_start_at = EXCLUDED.data_start_at,
+                        data_end_at = EXCLUDED.data_end_at
+                    """,
+                    {
+                        "snapshot_id": snapshot_id,
+                        "snapshot_date": page_date,
+                        "market": market,
+                        "interest_rate_regime": payload["market_regimes"]["interest_rate"]["label"],
+                        "fx_regime": payload["market_regimes"]["fx"]["label"],
+                        "inflation_regime": payload["market_regimes"]["inflation"]["label"],
+                        "growth_regime": payload["market_regimes"]["growth"]["label"],
+                        "headline": headline,
+                        "abstract": payload.get("headlines", [{}])[0].get("summary") if payload.get("headlines") else "",
+                        "data_start_at": payload.get("window", {}).get("start"),
+                        "data_end_at": payload.get("window", {}).get("end"),
+                    },
+                )
+
+                cur.execute("DELETE FROM today_issues WHERE snapshot_id = %s", (snapshot_id,))
+                for rank, issue in enumerate(payload.get("issues", []), start=1):
+                    cur.execute(
+                        """
+                        INSERT INTO today_issues (
+                            snapshot_id, issue_rank, title, summary, issue_type,
+                            importance, sentiment, macro_tags, sector_tags, asset_tags, risk_tags
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            snapshot_id,
+                            rank,
+                            issue.get("title") or "",
+                            issue.get("summary"),
+                            issue.get("issue_type"),
+                            int(round(float(issue.get("importance") or 0.0) * 100)),
+                            issue.get("sentiment"),
+                            issue.get("macro_tags") or [],
+                            issue.get("sector_tags") or [],
+                            issue.get("asset_tags") or [],
+                            issue.get("risk_tags") or [],
+                        ),
+                    )
+
+                cur.execute(
+                    "DELETE FROM evidence_links WHERE target_type = %s AND target_id = %s",
+                    ("serving_page", page_id),
+                )
+                for section in ("headlines", "issues", "tracked_issues", "events"):
+                    for final_rank, item in enumerate(payload.get(section, []), start=1):
+                        for evidence in item.get("evidence", []):
+                            cur.execute(
+                                """
+                                INSERT INTO evidence_links (
+                                    target_type, target_id, section_key, doc_id, chunk_id,
+                                    final_rank, evidence_text, reasoning_note
+                                )
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                """,
+                                (
+                                    "serving_page",
+                                    page_id,
+                                    section,
+                                    evidence.get("doc_id"),
+                                    evidence.get("chunk_id"),
+                                    final_rank,
+                                    item.get("summary"),
+                                    "rule_based_today_poc",
+                                ),
+                            )
+
+                cur.execute(
+                    """
+                    INSERT INTO serving_pages (
+                        page_id, page_type, page_date, market, user_id, title, status,
+                        payload, source_report_ids, generated_at
+                    )
+                    VALUES (%s, 'today', %s, %s, %s, %s, 'ready', %s::jsonb, %s, now())
+                    ON CONFLICT (page_type, page_date, market, user_id) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        status = EXCLUDED.status,
+                        payload = EXCLUDED.payload,
+                        source_report_ids = EXCLUDED.source_report_ids,
+                        generated_at = now()
+                    """,
+                    (
+                        page_id,
+                        page_date,
+                        market,
+                        user_id,
+                        headline,
+                        json_dumps(payload),
+                        source_doc_ids,
+                    ),
+                )
+        return page_id
